@@ -17,14 +17,7 @@ model = genai.GenerativeModel(
     system_instruction=(
         "Siz Xorazm viloyati, Urganch shahridagi 'Madina Gullari' do'konining professional sotuvchi yordamchisiz. "
         "Mijozlarga o'zbek tilida (adabiy tilda), nihoyatda xushmuomala javob bering. "
-        "Do'kon ma'lumotlari:\n"
-        "- Manzil: Urganch shahri.\n"
-        "- 1-Filial: TBS-Bank yonida. Telefon: +998 97 525 52 52\n"
-        "- 2-Filial: Gidra kollej yonida. Telefon: +998 97 504 52 52\n"
-        "- Xizmatlar: Gullar va Sovg'alar, yetkazib berish (Dostavka) xizmati mavjud.\n"
-        "- To'lov turlari: Click, Payme va naqd pul orqali.\n"
-        "- Muhim: Karta raqami va boshqa batafsil ma'lumotlar uchun +998 97 525 52 52 raqamiga qo'ng'iroq qilishni yoki filialga murojaat qilishni ayting.\n"
-        "Mijozlarga gullar tanlashda yordam bering. Javoblaringiz qisqa va samimiy bo'lsin."
+        "Javoblaringiz qisqa va samimiy bo'lsin."
     )
 )
 
@@ -35,26 +28,24 @@ dp = Dispatcher()
 # --- 3. TELEGRAM BOT MANTIQI ---
 @dp.message()
 async def mijoz_savoliga_javob(message: Message):
-    # DIAGNOSTIKA: Kelayotgan xabar ID-sini logga chiqarish
-    print(f"DEBUG: Xabar keldi! Chat ID: {message.chat.id}, Guruh nomi: {message.chat.title}")
+    # DIAGNOSTIKA: HAR QANDAY XABARNI LOGGA CHIQARISH
+    print(f"!!! LOG: Xabar keldi !!! Chat ID: {message.chat.id}, Kimdan: {message.from_user.full_name}, Matn: {message.text}")
     
-    # Faqat belgilangan guruhdagi va odamlardan kelgan xabarlarga javob berish
     if not message.from_user.is_bot:
         if not message.text:
             return
 
         try:
-            # Gemini API ga so'rov yuborish
             response = await model.generate_content_async(message.text)
             ai_javob = response.text
             await message.reply(ai_javob)
-            
+            print(f"AI javob berdi: {ai_javob}")
         except Exception as e:
             print(f"Gemini xatoligi: {e}")
 
-# --- 4. WEB SERVER (Render uxlab qolmasligi uchun) ---
+# --- 4. WEB SERVER ---
 async def handle_ping(request):
-    return web.Response(text="Bot is running completely fine!")
+    return web.Response(text="Bot is running!")
 
 async def start_web_server():
     app = web.Application()
@@ -69,7 +60,15 @@ async def start_web_server():
 # --- 5. ASOSIY ISHGA TUSHIRISH MANTIQI ---
 async def main():
     await start_web_server()
-    print("Telegram bot poling rejimi boshlandi (Gemini)...")
+    
+    # Bot ma'lumotlarini tekshirish
+    me = await bot.get_me()
+    print(f"Bot ishga tushdi: @{me.username} (ID: {me.id})")
+    
+    # Webhookni tozalash (xatoliklarni oldini olish uchun)
+    await bot.delete_webhook(drop_pending_updates=True)
+    
+    print("Telegram bot polling rejimi boshlandi...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":

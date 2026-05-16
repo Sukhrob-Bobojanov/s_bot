@@ -6,9 +6,10 @@ from aiogram.types import Message
 from aiohttp import web
 
 # --- 1. SOZLAMALAR ---
-TOKEN = os.getenv("BOT_TOKEN")
-AI_KEY = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-GURUH_ID = int(os.getenv("GURUH_ID", "-1003706862748"))
+TOKEN = os.getenv("BOT_TOKEN", "").strip()
+AI_KEY = (os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY") or "").strip()
+GURUH_ID_STR = os.getenv("GURUH_ID", "-1003706862748").strip()
+GURUH_ID = int(GURUH_ID_STR)
 
 # --- 2. AI SOZLAMASI ---
 if AI_KEY:

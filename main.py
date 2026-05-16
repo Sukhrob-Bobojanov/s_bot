@@ -39,8 +39,9 @@ async def mijoz_savoliga_javob(message: Message):
                             "- 1-Filial: TBS-Bank yonida. Telefon: +998 97 525 52 52\n"
                             "- 2-Filial: Gidra kollej yonida. Telefon: +998 97 504 52 52\n"
                             "- Xizmatlar: Gullar va Sovg'alar, yetkazib berish (Dostavka) xizmati mavjud.\n"
-                            "Mijozlarga gullar tanlashda yordam bering, narxlarni so'rashsa filiallar bilan bog'lanishni yoki kutib turishni ayting (agar aniq narxni bilmasangiz). "
-                            "Javoblaringiz qisqa va samimiy bo'lsin."
+                            "- To'lov turlari: Click, Payme va naqd pul orqali.\n"
+                            "- Muhim: Karta raqami va boshqa batafsil ma'lumotlar uchun +998 97 525 52 52 raqamiga qo'ng'iroq qilishni yoki filialga murojaat qilishni ayting.\n"
+                            "Mijozlarga gullar tanlashda yordam bering. Javoblaringiz qisqa va samimiy bo'lsin."
                         )
                     },
                     {"role": "user", "content": message.text}

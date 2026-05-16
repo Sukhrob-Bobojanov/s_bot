@@ -7,8 +7,12 @@ from aiohttp import web
 
 # --- 1. SOZLAMALAR ---
 TELEGRAM_BOT_TOKEN = os.getenv("BOT_TOKEN")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+# Ham GEMINI_API_KEY, ham GOOGLE_API_KEY ni tekshiramiz
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 MAQSADLI_GURUH_ID = int(os.getenv("GURUH_ID", "-1003706862748"))
+
+if not GEMINI_API_KEY:
+    print("XATOLIK: Gemini API kaliti topilmadi! Iltimos, Render'da GEMINI_API_KEY yoki GOOGLE_API_KEY ni o'rnating.")
 
 # Gemini sozlamalari
 genai.configure(api_key=GEMINI_API_KEY)

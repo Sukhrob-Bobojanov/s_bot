@@ -19,8 +19,11 @@ ai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 # --- 3. TELEGRAM BOT MANTIQI ---
 @dp.message()
 async def mijoz_savoliga_javob(message: Message):
-    # Faqat belgilangan guruhdagi va odamlardan kelgan xabarlarga javob berish
-    if message.chat.id == MAQSADLI_GURUH_ID and not message.from_user.is_bot:
+    # DIAGNOSTIKA: Kelayotgan xabar ma'lumotlarini konsolga chiqarish
+    print(f"Xabar keldi! Chat ID: {message.chat.id}, Matn: {message.text}")
+    
+    # Faqat odamlardan kelgan xabarlarga javob berish (botlar javob bermaydi)
+    if not message.from_user.is_bot:
         if not message.text:
             return
 

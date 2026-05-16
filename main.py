@@ -35,8 +35,11 @@ dp = Dispatcher()
 # --- 3. TELEGRAM BOT MANTIQI ---
 @dp.message()
 async def mijoz_savoliga_javob(message: Message):
+    # DIAGNOSTIKA: Kelayotgan xabar ID-sini logga chiqarish
+    print(f"DEBUG: Xabar keldi! Chat ID: {message.chat.id}, Guruh nomi: {message.chat.title}")
+    
     # Faqat belgilangan guruhdagi va odamlardan kelgan xabarlarga javob berish
-    if message.chat.id == MAQSADLI_GURUH_ID and not message.from_user.is_bot:
+    if not message.from_user.is_bot:
         if not message.text:
             return
 

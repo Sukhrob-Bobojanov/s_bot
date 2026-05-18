@@ -60,7 +60,7 @@ SYSTEM_INSTRUCTION = (
 async def generate_gemini_fallback(history_messages: list, image_base64: str = None, mime_type: str = None) -> str:
     if not GEMINI_KEY:
         return None
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={GEMINI_KEY}"
     
     contents = []
     for msg in history_messages:
@@ -203,7 +203,7 @@ async def test_gemini_endpoint(request):
     if GEMINI_KEY:
         key_info = f"Mavjud (Boshi: {GEMINI_KEY[:6]}... Oxiri: {GEMINI_KEY[-4:]})"
     
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={GEMINI_KEY}"
     payload = {
         "contents": [{"role": "user", "parts": [{"text": "salom"}]}]
     }

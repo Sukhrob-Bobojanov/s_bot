@@ -44,11 +44,13 @@ SYSTEM_INSTRUCTION = (
     "Siz Xorazm viloyati, Urganch shahridagi 'Madina Gullari' do'konining professional, samimiy va jonli sotuvchi yordamchisiz. "
     "Mijozlar bilan xuddi haqiqiy do'kon sotuvchisi kabi juda issiq, tabiiy va samimiy suhbat quring. "
     "QAT'IY MUHIM QOIDALAR:\n"
-    "1. Har bir javobda do'kon ma'lumotlarini (manzillar, telefonlar, to'lovlar) shablon yoki nusxa kabi to'kib tashlamang! Bu juda sun'iy ko'rinadi. "
-    "Ushbu ma'lumotlarni faqat va faqat mijoz so'ragandagina (masalan: 'Qayerdasizlar?', 'Telefon raqamingiz bormi?', 'Qanday to'layman?') taqdim eting.\n"
-    "2. Javoblaringiz juda qisqa (1-3 gapdan oshmasin), jonli, shirin va suhbatdoshni jalb qiladigan bo'lsin. Har doim suhbat oxirida mijozga samimiy savol berib, muloqotni davom ettiring.\n"
-    "3. Agar mijoz rasm yuborsa yoki rasmga reply qilsa, rasmga e'tibor qarating, undagi mahsulotni aniq tasvirlang va unga hayrihohlik bildiring (masalan: 'Vuy, naqadar ajoyib va bayramona shirinliklar guldastasi! 😍 Shokoladlari ham juda mazali ko'rinadi... Kimga sovg'a qilmoqchisiz, tayyorlab beraylikmi?').\n"
-    "4. Rasmiy va quruq gapirmang, tabiiy va chiroyli emojilardan me'yorida foydalaning.\n\n"
+    "1. Har bir javobda do'kon ma'lumotlarini (manzillar, telefonlar, to'lovlar) shablon yoki nusxa kabi to'kib tashlamang! "
+    "Ushbu ma'lumotlarni faqat va faqat mijoz so'ragandagina taqdim eting.\n"
+    "2. Har bir xabarda qayta-qayta salomlashmang! Agar suhbat boshida salomlashib bo'lingan bo'lsa (tarixga qarang), keyingi javoblarda aslo 'Assalomu alaykum' yoki 'Va alaykum assalom' deb qayta yozmang! Suhbatni to'g'ridan-to'g'ri samimiy davom ettiring.\n"
+    "3. Mijoz oldingi xabarlarida bergan ma'lumotlarini (masalan, kim uchun gul olyotganini: onasi, singlisi, rafiqasi; budjetini; sevimli gulini) suhbat tarixidan eslab qoling. Ularni aslo qaytadan so'ramang! Masalan, agar mijoz bir marta 'onamga' deb aytgan bo'lsa, keyingi xabarda 'buni kimga sovg'a qilmoqchisiz?' deb qayta so'rash qat'iyan taqiqlanadi! Muloqotni 'onajoningiz uchun' deb davom ettiring.\n"
+    "4. Javoblaringiz juda qisqa (1-3 gapdan oshmasin), jonli, shirin va suhbatdoshni jalb qiladigan bo'lsin. Har doim suhbat oxirida mijozga samimiy savol berib, muloqotni davom ettiring.\n"
+    "5. Agar mijoz rasm yuborsa yoki rasmga reply qilsa, rasmga e'tibor qarating, undagi mahsulotni aniq tasvirlang va unga hayrihohlik bildiring.\n"
+    "6. Rasmiy va quruq gapirmang, tabiiy va chiroyli emojilardan me'yorida foydalaning.\n\n"
     "DO'KON MA'LUMOTLARI (Faqat so'ralganda ishlating):\n"
     "- Manzil: Urganch shahri.\n"
     "- 1-Filial: TBS-Bank yonida. Telefon: +998 97 525 52 52\n"
@@ -58,28 +60,30 @@ SYSTEM_INSTRUCTION = (
 )
 
 # --- 3. ZAXIRA GEMINI API FUNKSIYASI (Kutubxonasiz - Direct HTTP Request) ---
-async def generate_gemini_fallback(user_text: str, image_base64: str = None, mime_type: str = None) -> str:
+async def generate_gemini_fallback(history_messages: list, image_base64: str = None, mime_type: str = None) -> str:
     if not GEMINI_KEY:
         return None
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_KEY}"
     
-    parts = []
-    if image_base64 and mime_type:
-        parts.append({
+    contents = []
+    for msg in history_messages:
+        role = "model" if msg["role"] in ["assistant", "model"] else "user"
+        contents.append({
+            "role": role,
+            "parts": [{"text": msg["content"]}]
+        })
+    
+    if image_base64 and mime_type and contents:
+        # Tarixdagi oxirgi xabarga rasmni qo'shib yuboramiz
+        contents[-1]["parts"].insert(0, {
             "inlineData": {
                 "mimeType": mime_type,
                 "data": image_base64
             }
         })
-    # Matn qismini qo'shamiz (caption yoki xabar matni bo'sh bo'lishi mumkinligi uchun zaxira)
-    parts.append({"text": user_text or "Rasmga qarab sotuvchi sifatida chiroyli javob bering."})
     
     payload = {
-        "contents": [
-            {
-                "parts": parts
-            }
-        ],
+        "contents": contents,
         "systemInstruction": {
             "parts": [{"text": SYSTEM_INSTRUCTION}]
         }
@@ -100,6 +104,14 @@ async def generate_gemini_fallback(user_text: str, image_base64: str = None, mim
 # --- 4. BOT VA DISPATCHER ---
 bot = Bot(token=TOKEN) if TOKEN else None
 dp = Dispatcher()
+
+# Suhbatlar xotirasi (Memory): chat_id -> list of {"role": str, "content": str}
+chat_histories = {}
+
+def get_chat_history(chat_id: int) -> list:
+    if chat_id not in chat_histories:
+        chat_histories[chat_id] = []
+    return chat_histories[chat_id]
 
 @dp.message()
 async def handle_message(message: Message):
@@ -137,12 +149,18 @@ async def handle_message(message: Message):
             except Exception as photo_err:
                 print(f"Rasmni yuklashda xatolik: {photo_err}")
         
+        # Muloqot tarixini olamiz va yangi xabarni qo'shamiz
+        history = get_chat_history(message.chat.id)
+        history.append({"role": "user", "content": user_text or "[Rasm yuborildi]"})
+        if len(history) > 10:
+            history.pop(0)
+            
         ai_javob = None
         
         # 1-Bosqich: Agar rasm bo'lsa, to'g'ridan-to'g'ri multimodal Gemini 2.5 Flash API'dan foydalanamiz
         if image_base64:
             print("Multimodal rasm tahlili boshlandi (Gemini 2.5)...")
-            ai_javob = await generate_gemini_fallback(user_text, image_base64, mime_type)
+            ai_javob = await generate_gemini_fallback(history, image_base64, mime_type)
         else:
             # 2-Bosqich: Agar faqat matn bo'lsa, standart OpenCode Zen AI va Gemini fallback'dan foydalanamiz
             if ai_client:
@@ -151,10 +169,7 @@ async def handle_message(message: Message):
                     try:
                         response = await ai_client.chat.completions.create(
                             model=current_model,
-                            messages=[
-                                {"role": "system", "content": SYSTEM_INSTRUCTION},
-                                {"role": "user", "content": user_text}
-                            ],
+                            messages=[{"role": "system", "content": SYSTEM_INSTRUCTION}] + history,
                             max_tokens=800,
                             temperature=0.7
                         )
@@ -167,12 +182,19 @@ async def handle_message(message: Message):
             
             if not ai_javob:
                 print("OpenCode modellari ishlamadi yoki limit tugadi. Zaxira Gemini API ishga tushirildi...")
-                ai_javob = await generate_gemini_fallback(user_text)
+                ai_javob = await generate_gemini_fallback(history)
         
         # Javob yuborish
         if ai_javob:
+            # AI javobini ham muloqot tarixiga saqlaymiz
+            history.append({"role": "assistant", "content": ai_javob})
+            if len(history) > 10:
+                history.pop(0)
             await message.reply(ai_javob)
         else:
+            # Agar xatolik bo'lsa, oxirgi qo'shilgan foydalanuvchi xabarini muloqot tarixidan o'chirib turamiz
+            if history:
+                history.pop()
             await message.reply("Hozirda AI xizmatida yuqori yuklama mavjud. Iltimos, birozdan so'ng qayta urinib ko'ring yoki +998 97 525 52 52 raqamiga bog'laning.")
 
 # --- 5. RENDER UCHUN WEB SERVER ---

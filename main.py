@@ -13,7 +13,7 @@ AI_KEY = os.getenv("OPENCODE_API_KEY") or os.getenv("OPENAI_API_KEY") or "sk-GO6
 AI_KEY = AI_KEY.strip()
 
 # Gemini zaxira kaliti (API muammo bo'lganda 100% bepul va cheksiz ishlashi uchun)
-GEMINI_KEY = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY") or "AIzaSyCcXGrTwDsoOhn6p093B7OlvOieagHa3rg"
+GEMINI_KEY = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY") or "AIzaSyAcbir6NJ1tUaJlLKAblQyewd4TdJhmNcE"
 GEMINI_KEY = GEMINI_KEY.strip()
 
 # Guruh ID raqami

@@ -201,9 +201,36 @@ async def handle_message(message: Message):
 async def web_ping(request):
     return web.Response(text="Bot is running fine on OpenCode & Gemini Fallback!")
 
+async def test_gemini_endpoint(request):
+    key_info = "Yo'q (Bo'sh)"
+    if GEMINI_KEY:
+        key_info = f"Mavjud (Boshi: {GEMINI_KEY[:6]}... Oxiri: {GEMINI_KEY[-4:]})"
+    
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_KEY}"
+    payload = {
+        "contents": [{"role": "user", "parts": [{"text": "salom"}]}]
+    }
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, timeout=10) as resp:
+                status = resp.status
+                body = await resp.json() if resp.status == 200 else await resp.text()
+                return web.json_response({
+                    "gemini_key_status": key_info,
+                    "http_status": status,
+                    "response": body
+                })
+    except Exception as e:
+        return web.json_response({
+            "gemini_key_status": key_info,
+            "error": str(e)
+        })
+
 async def run_server():
     app = web.Application()
     app.router.add_get("/", web_ping)
+    app.router.add_get("/test-gemini", test_gemini_endpoint)
     runner = web.AppRunner(app)
     await runner.setup()
     port = int(os.getenv("PORT", "10000"))

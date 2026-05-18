@@ -1,6 +1,8 @@
 import os
 import asyncio
 import aiohttp
+import base64
+import io
 from openai import AsyncOpenAI
 from aiogram import Bot, Dispatcher
 from aiogram.types import Message
@@ -52,15 +54,26 @@ SYSTEM_INSTRUCTION = (
 )
 
 # --- 3. ZAXIRA GEMINI API FUNKSIYASI (Kutubxonasiz - Direct HTTP Request) ---
-async def generate_gemini_fallback(user_text: str) -> str:
+async def generate_gemini_fallback(user_text: str, image_base64: str = None, mime_type: str = None) -> str:
     if not GEMINI_KEY:
         return None
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_KEY}"
+    
+    parts = []
+    if image_base64 and mime_type:
+        parts.append({
+            "inlineData": {
+                "mimeType": mime_type,
+                "data": image_base64
+            }
+        })
+    # Matn qismini qo'shamiz (caption yoki xabar matni bo'sh bo'lishi mumkinligi uchun zaxira)
+    parts.append({"text": user_text or "Rasmga qarab sotuvchi sifatida chiroyli javob bering."})
+    
     payload = {
         "contents": [
             {
-                "role": "user",
-                "parts": [{"text": user_text}]
+                "parts": parts
             }
         ],
         "systemInstruction": {
@@ -69,7 +82,7 @@ async def generate_gemini_fallback(user_text: str) -> str:
     }
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, timeout=10) as resp:
+            async with session.post(url, json=payload, timeout=12) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     return data["candidates"][0]["content"]["parts"][0]["text"]
@@ -88,41 +101,69 @@ dp = Dispatcher()
 async def handle_message(message: Message):
     # Faqat belgilangan guruhdagi va odamlardan kelgan xabarlarga javob berish
     if message.chat.id == GURUH_ID and not message.from_user.is_bot:
-        if not message.text:
+        user_text = message.text or message.caption or ""
+        
+        # 1. Rasm to'g'ridan-to'g'ri xabarda kelgan yoki rasmga reply qilinganligini aniqlash
+        photo = None
+        if message.photo:
+            photo = message.photo[-1]
+        elif message.reply_to_message and message.reply_to_message.photo:
+            photo = message.reply_to_message.photo[-1]
+        
+        # Agar na matn, na rasm bo'lmasa, qaytamiz
+        if not user_text and not photo:
             return
         
-        # Diagnostika uchun kelayotgan xabarni konsolga chiqaramiz
-        print(f"!!! LOG: Xabar keldi !!! Chat ID: {message.chat.id}, Kimdan: {message.from_user.full_name}, Matn: {message.text}")
+        # Diagnostika uchun konsolga chiqaramiz
+        print(f"!!! LOG: Xabar keldi !!! Chat ID: {message.chat.id}, Kimdan: {message.from_user.full_name}, Matn: {user_text}, Rasm: {bool(photo)}")
+        
+        image_base64 = None
+        mime_type = None
+        
+        # Agar rasm bo'lsa, uni xavfsiz yuklab olib base64 formatga o'tkazamiz
+        if photo and bot:
+            try:
+                print("Rasm yuklab olinmoqda...")
+                file_info = await bot.get_file(photo.file_id)
+                file_io = await bot.download_file(file_info.file_path)
+                image_bytes = file_io.getvalue()
+                image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+                mime_type = "image/jpeg"
+                print("Rasm muvaffaqiyatli yuklab olindi va base64 formatiga o'tkazildi.")
+            except Exception as photo_err:
+                print(f"Rasmni yuklashda xatolik: {photo_err}")
         
         ai_javob = None
         
-        # 1-Bosqich: OpenCode Zen orqali turli modellarni sinab ko'rish
-        if ai_client:
-            models_to_try = [MODEL_NAME, "big-pickle", "minimax-m2.5"]
-            for current_model in models_to_try:
-                try:
-                    response = await ai_client.chat.completions.create(
-                        model=current_model,
-                        messages=[
-                            {"role": "system", "content": SYSTEM_INSTRUCTION},
-                            {"role": "user", "content": message.text}
-                        ],
-                        max_tokens=800,
-                        temperature=0.7
-                    )
-                    ai_javob = response.choices[0].message.content
-                    print(f"AI ({current_model}) orqali muvaffaqiyatli javob berdi.")
-                    break
-                except Exception as e:
-                    print(f"AI Error ({current_model}): {e}")
-                    continue
-        
-        # 2-Bosqich: Agar OpenCode xizmatlari ishlamasa, bepul Gemini API'ga yuzlanish (Direct HTTP)
-        if not ai_javob:
-            print("OpenCode modellari ishlamadi yoki limit tugadi. Zaxira Gemini API ishga tushirildi...")
-            ai_javob = await generate_gemini_fallback(message.text)
-            if ai_javob:
-                print("Gemini Fallback orqali muvaffaqiyatli javob olindi.")
+        # 1-Bosqich: Agar rasm bo'lsa, to'g'ridan-to'g'ri multimodal Gemini 2.5 Flash API'dan foydalanamiz
+        if image_base64:
+            print("Multimodal rasm tahlili boshlandi (Gemini 2.5)...")
+            ai_javob = await generate_gemini_fallback(user_text, image_base64, mime_type)
+        else:
+            # 2-Bosqich: Agar faqat matn bo'lsa, standart OpenCode Zen AI va Gemini fallback'dan foydalanamiz
+            if ai_client:
+                models_to_try = [MODEL_NAME, "big-pickle", "minimax-m2.5"]
+                for current_model in models_to_try:
+                    try:
+                        response = await ai_client.chat.completions.create(
+                            model=current_model,
+                            messages=[
+                                {"role": "system", "content": SYSTEM_INSTRUCTION},
+                                {"role": "user", "content": user_text}
+                            ],
+                            max_tokens=800,
+                            temperature=0.7
+                        )
+                        ai_javob = response.choices[0].message.content
+                        print(f"AI ({current_model}) orqali muvaffaqiyatli javob berdi.")
+                        break
+                    except Exception as e:
+                        print(f"AI Error ({current_model}): {e}")
+                        continue
+            
+            if not ai_javob:
+                print("OpenCode modellari ishlamadi yoki limit tugadi. Zaxira Gemini API ishga tushirildi...")
+                ai_javob = await generate_gemini_fallback(user_text)
         
         # Javob yuborish
         if ai_javob:

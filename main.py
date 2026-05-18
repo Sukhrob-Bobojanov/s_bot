@@ -21,9 +21,13 @@ MODEL_NAME = os.getenv("AI_MODEL", "minimax-m2.5-free").strip()
 # --- 2. OPENAI-COMPATIBLE CLIENT (OpenCode Zen) ---
 ai_client = None
 if AI_KEY:
+    # OpenCode rate limitlarini yumshatish uchun rasmiy CLI sarlavhasini (headers) yuboramiz
     ai_client = AsyncOpenAI(
         api_key=AI_KEY,
-        base_url="https://opencode.ai/zen/v1"
+        base_url="https://opencode.ai/zen/v1",
+        default_headers={
+            "x-opencode-client": "cli"
+        }
     )
 
 # Tizim yo'riqnomasi (System Prompt)
@@ -54,27 +58,38 @@ async def handle_message(message: Message):
         # Diagnostika uchun kelayotgan xabarni konsolga chiqaramiz
         print(f"!!! LOG: Xabar keldi !!! Chat ID: {message.chat.id}, Kimdan: {message.from_user.full_name}, Matn: {message.text}")
         
-        try:
-            # OpenCode Zen orqali xabar yuborish
-            response = await ai_client.chat.completions.create(
-                model=MODEL_NAME,
-                messages=[
-                    {"role": "system", "content": SYSTEM_INSTRUCTION},
-                    {"role": "user", "content": message.text}
-                ],
-                max_tokens=800,
-                temperature=0.7
-            )
-            ai_javob = response.choices[0].message.content
+        # Rate limit (429) xatoligiga qarshi aqlli model rotatsiyasi (zaxira modellarni sinab ko'rish)
+        models_to_try = [MODEL_NAME, "big-pickle", "minimax-m2.5"]
+        ai_javob = None
+        
+        for current_model in models_to_try:
+            try:
+                # OpenCode Zen orqali xabar yuborish
+                response = await ai_client.chat.completions.create(
+                    model=current_model,
+                    messages=[
+                        {"role": "system", "content": SYSTEM_INSTRUCTION},
+                        {"role": "user", "content": message.text}
+                    ],
+                    max_tokens=800,
+                    temperature=0.7
+                )
+                ai_javob = response.choices[0].message.content
+                print(f"AI ({current_model}) orqali muvaffaqiyatli javob berdi.")
+                break # Agar javob muvaffaqiyatli bo'lsa, keyingi modellarni sinash shart emas
+            except Exception as e:
+                print(f"AI Error ({current_model}): {e}")
+                # Keyingi modelga o'tib sinab ko'radi
+                continue
+        
+        if ai_javob:
             await message.reply(ai_javob)
-            print(f"AI javob berdi: {ai_javob}")
-            
-        except Exception as e:
-            print(f"AI Xatoligi (OpenCode): {e}")
+        else:
+            await message.reply("Hozirda AI xizmatida yuqori yuklama mavjud. Iltimos, birozdan so'ng qayta urinib ko'ring yoki +998 97 525 52 52 raqamiga bog'laning.")
 
 # --- 4. RENDER UCHUN WEB SERVER ---
 async def web_ping(request):
-    return web.Response(text="Bot is running fine on OpenCode API!")
+    return web.Response(text="Bot is running fine on OpenCode API with Fallbacks!")
 
 async def run_server():
     app = web.Application()

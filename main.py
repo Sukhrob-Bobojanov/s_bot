@@ -1,5 +1,6 @@
 import os
 import asyncio
+import aiohttp
 from openai import AsyncOpenAI
 from aiogram import Bot, Dispatcher
 from aiogram.types import Message
@@ -7,9 +8,13 @@ from aiohttp import web
 
 # --- 1. SOZLAMALAR ---
 TOKEN = os.getenv("BOT_TOKEN", "").strip()
-# OpenCode API kalitini kiritamiz (foydalanuvchi taqdim etgan kalit standart fallback sifatida ishlatiladi)
+# OpenCode API kalitini kiritamiz
 AI_KEY = os.getenv("OPENCODE_API_KEY") or os.getenv("OPENAI_API_KEY") or "sk-GO62qVc5tdwEsB4GnZo6KQ8T9EauZT22xttCo8sde5vXebueMV0f78jVraR1DZQe"
 AI_KEY = AI_KEY.strip()
+
+# Gemini zaxira kaliti (API muammo bo'lganda 100% bepul va cheksiz ishlashi uchun)
+GEMINI_KEY = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY") or "AIzaSyCcXGrTwDsoOhn6p093B7OlvOieagHa3rg"
+GEMINI_KEY = GEMINI_KEY.strip()
 
 # Guruh ID raqami
 GURUH_ID_STR = os.getenv("GURUH_ID", "-1003706862748").strip()
@@ -21,7 +26,6 @@ MODEL_NAME = os.getenv("AI_MODEL", "minimax-m2.5-free").strip()
 # --- 2. OPENAI-COMPATIBLE CLIENT (OpenCode Zen) ---
 ai_client = None
 if AI_KEY:
-    # OpenCode rate limitlarini yumshatish uchun rasmiy CLI sarlavhasini (headers) yuboramiz
     ai_client = AsyncOpenAI(
         api_key=AI_KEY,
         base_url="https://opencode.ai/zen/v1",
@@ -44,7 +48,36 @@ SYSTEM_INSTRUCTION = (
     "Mijozlarga gullar tanlashda yordam bering. Javoblaringiz qisqa va samimiy bo'lsin."
 )
 
-# --- 3. BOT VA DISPATCHER ---
+# --- 3. ZAXIRA GEMINI API FUNKSIYASI (Kutubxonasiz - Direct HTTP Request) ---
+async def generate_gemini_fallback(user_text: str) -> str:
+    if not GEMINI_KEY:
+        return None
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
+    payload = {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [{"text": user_text}]
+            }
+        ],
+        "systemInstruction": {
+            "parts": [{"text": SYSTEM_INSTRUCTION}]
+        }
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, timeout=10) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return data["candidates"][0]["content"]["parts"][0]["text"]
+                else:
+                    err_log = await resp.text()
+                    print(f"Gemini Fallback HTTP Error {resp.status}: {err_log}")
+    except Exception as e:
+        print(f"Gemini Fallback Exception: {e}")
+    return None
+
+# --- 4. BOT VA DISPATCHER ---
 bot = Bot(token=TOKEN) if TOKEN else None
 dp = Dispatcher()
 
@@ -52,44 +85,51 @@ dp = Dispatcher()
 async def handle_message(message: Message):
     # Faqat belgilangan guruhdagi va odamlardan kelgan xabarlarga javob berish
     if message.chat.id == GURUH_ID and not message.from_user.is_bot:
-        if not message.text or not ai_client:
+        if not message.text:
             return
         
         # Diagnostika uchun kelayotgan xabarni konsolga chiqaramiz
         print(f"!!! LOG: Xabar keldi !!! Chat ID: {message.chat.id}, Kimdan: {message.from_user.full_name}, Matn: {message.text}")
         
-        # Rate limit (429) xatoligiga qarshi aqlli model rotatsiyasi (zaxira modellarni sinab ko'rish)
-        models_to_try = [MODEL_NAME, "big-pickle", "minimax-m2.5"]
         ai_javob = None
         
-        for current_model in models_to_try:
-            try:
-                # OpenCode Zen orqali xabar yuborish
-                response = await ai_client.chat.completions.create(
-                    model=current_model,
-                    messages=[
-                        {"role": "system", "content": SYSTEM_INSTRUCTION},
-                        {"role": "user", "content": message.text}
-                    ],
-                    max_tokens=800,
-                    temperature=0.7
-                )
-                ai_javob = response.choices[0].message.content
-                print(f"AI ({current_model}) orqali muvaffaqiyatli javob berdi.")
-                break # Agar javob muvaffaqiyatli bo'lsa, keyingi modellarni sinash shart emas
-            except Exception as e:
-                print(f"AI Error ({current_model}): {e}")
-                # Keyingi modelga o'tib sinab ko'radi
-                continue
+        # 1-Bosqich: OpenCode Zen orqali turli modellarni sinab ko'rish
+        if ai_client:
+            models_to_try = [MODEL_NAME, "big-pickle", "minimax-m2.5"]
+            for current_model in models_to_try:
+                try:
+                    response = await ai_client.chat.completions.create(
+                        model=current_model,
+                        messages=[
+                            {"role": "system", "content": SYSTEM_INSTRUCTION},
+                            {"role": "user", "content": message.text}
+                        ],
+                        max_tokens=800,
+                        temperature=0.7
+                    )
+                    ai_javob = response.choices[0].message.content
+                    print(f"AI ({current_model}) orqali muvaffaqiyatli javob berdi.")
+                    break
+                except Exception as e:
+                    print(f"AI Error ({current_model}): {e}")
+                    continue
         
+        # 2-Bosqich: Agar OpenCode xizmatlari ishlamasa, bepul Gemini API'ga yuzlanish (Direct HTTP)
+        if not ai_javob:
+            print("OpenCode modellari ishlamadi yoki limit tugadi. Zaxira Gemini API ishga tushirildi...")
+            ai_javob = await generate_gemini_fallback(message.text)
+            if ai_javob:
+                print("Gemini Fallback orqali muvaffaqiyatli javob olindi.")
+        
+        # Javob yuborish
         if ai_javob:
             await message.reply(ai_javob)
         else:
             await message.reply("Hozirda AI xizmatida yuqori yuklama mavjud. Iltimos, birozdan so'ng qayta urinib ko'ring yoki +998 97 525 52 52 raqamiga bog'laning.")
 
-# --- 4. RENDER UCHUN WEB SERVER ---
+# --- 5. RENDER UCHUN WEB SERVER ---
 async def web_ping(request):
-    return web.Response(text="Bot is running fine on OpenCode API with Fallbacks!")
+    return web.Response(text="Bot is running fine on OpenCode & Gemini Fallback!")
 
 async def run_server():
     app = web.Application()
@@ -101,7 +141,7 @@ async def run_server():
     await site.start()
     print(f"Web server port {port} da ishga tushdi.")
 
-# --- 5. ASOSIY ISHGA TUSHIRISH ---
+# --- 6. ASOSIY ISHGA TUSHIRISH ---
 async def start_everything():
     await run_server()
     if bot:
